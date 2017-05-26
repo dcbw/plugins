@@ -61,6 +61,17 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func rpcCall(method string, args *skel.CmdArgs, result interface{}) error {
+	// Ensure /run/cni exists before we try to create a socket there
+	sockDir := filepath.Dir(socketPath)
+	if sockDir == "" {
+		return fmt.Errorf("cannot get dir component from %q", socketPath)
+	}
+	if _, err := os.Stat(sockDir); err != nil && os.IsNotExist(err) {
+		if err := os.MkdirAll(sockDir, 0700); err != nil {
+			return fmt.Errorf("failed to create %q: %v", sockDir, err)
+		}
+	}
+
 	client, err := rpc.DialHTTP("unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("error dialing DHCP daemon: %v", err)
