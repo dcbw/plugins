@@ -80,6 +80,35 @@ func cmdAdd(args *skel.CmdArgs) error {
 	return printLink(contDev, cfg.CNIVersion, containerNs)
 }
 
+func cmdGet(args *skel.CmdArgs) error {
+	cfg, err := loadConf(args.StdinData)
+	if err != nil {
+		return err
+	}
+	containerNs, err := ns.GetNS(args.Netns)
+	if err != nil {
+		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
+	}
+	defer containerNs.Close()
+
+	result := current.Result{
+		CNIVersion: current.ImplementedSpecVersion,
+		Interfaces: make([]*current.Interface, 0),
+	}
+	err = containerNs.Do(func(_ ns.NetNS) error {
+		if dev, err := netlink.LinkByName(args.IfName); err == nil {
+			result.Interfaces = append(result.Interfaces, &current.Interface{
+				Name:    dev.Attrs().Name,
+				Mac:     dev.Attrs().HardwareAddr.String(),
+				Sandbox: containerNs.Path(),
+			})
+		}
+		return nil
+	})
+
+	return types.PrintResult(&result, cfg.CNIVersion)
+}
+
 func cmdDel(args *skel.CmdArgs) error {
 	_, err := loadConf(args.StdinData)
 	if err != nil {
@@ -212,5 +241,5 @@ func getLink(devname, hwaddr, kernelpath string) (netlink.Link, error) {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdDel, version.All)
+	skel.PluginMain(cmdAdd, cmdGet, cmdDel, version.All)
 }
