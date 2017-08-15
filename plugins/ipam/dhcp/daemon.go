@@ -50,6 +50,8 @@ func newDHCP() *DHCP {
 	}
 }
 
+const LeasePath string = "/var/lib/cni/dhcp"
+
 // Allocate acquires an IP from a DHCP server for a specified container.
 // The acquired lease will be maintained until Release() is called.
 func (d *DHCP) Allocate(args *skel.CmdArgs, result *current.Result) error {
@@ -58,9 +60,13 @@ func (d *DHCP) Allocate(args *skel.CmdArgs, result *current.Result) error {
 		return fmt.Errorf("error parsing netconf: %v", err)
 	}
 
+	if err := os.MkdirAll(LeasePath, 0755); err != nil {
+		return fmt.Errorf("failed to create DHCP leasefile dir: %v", err)
+	}
+
 	clientID := args.ContainerID + "/" + conf.Name
 	hostNetns := d.hostNetnsPrefix + args.Netns
-	l, err := AcquireLease(clientID, hostNetns, args.IfName)
+	l, err := AcquireLease(clientID, hostNetns, args.IfName, LeasePath)
 	if err != nil {
 		return err
 	}
