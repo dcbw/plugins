@@ -53,11 +53,11 @@ type IPAMConfig struct {
 
 type IPAMEnvArgs struct {
 	types.CommonArgs
-	IP net.IP `json:"ip,omitempty"`
+	IP string `json:"ip,omitempty"`
 }
 
 type IPAMArgs struct {
-	IPs []net.IP `json:"ips"`
+	IPs []string `json:"ips"`
 }
 
 type RangeSet []Range
@@ -150,6 +150,43 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 			if p1.Overlaps(&p2) {
 				return nil, "", fmt.Errorf("range set %d overlaps with %d", i, (i + j + 1))
 			}
+		}
+	}
+
+	// Parse custom IP from both env args *and* the top-level args config
+	if envArgs != "" {
+		e := IPAMEnvArgs{}
+		err := types.LoadArgs(envArgs, &e)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if e.IP != "" {
+			var ipnet *net.IP
+			if strings.Contains(e.IP, "/") {
+				var ip net.IP
+				ip, ipnet, err = net.ParseCIDR(e.IP)
+				if err != nil {
+					return nil, "", err
+				}
+				ipnet.IP = ip
+			} else {
+				ipnet.IP = net.ParseIP(e.IP)
+				if ipnet.IP == nil {
+					return nil, "", fmt.Errorf("invalid IP %q", e.IP)
+				}
+			}
+			n.IPAM.IPArgs = []net.IP{e.IP}
+		}
+	}
+
+	if n.Args != nil && n.Args.A != nil && len(n.Args.A.IPs) != 0 {
+		n.IPAM.IPArgs = append(n.IPAM.IPArgs, n.Args.A.IPs...)
+	}
+
+	for idx, _ := range n.IPAM.IPArgs {
+		if err := canonicalizeIP(&n.IPAM.IPArgs[idx]); err != nil {
+			return nil, "", fmt.Errorf("cannot understand ip: %v", err)
 		}
 	}
 
