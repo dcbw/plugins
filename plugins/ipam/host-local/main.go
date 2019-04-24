@@ -93,19 +93,20 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	// Store all requested IPs in a map, so we can easily remove ones we use
 	// and error if some remain
-	requestedIPs := map[string]net.IP{} //net.IP cannot be a key
+	requestedIPs := map[string]*net.IPNet //net.IP cannot be a key
 
-	for _, ip := range ipamConf.IPArgs {
-		requestedIPs[ip.String()] = ip
+	for _, ipn := range ipamConf.IPArgs {
+		requestedIPs[ipn.String()] = ipn
 	}
 
 	for idx, rangeset := range ipamConf.Ranges {
 		allocator := allocator.NewIPAllocator(&rangeset, store, idx)
 
 		// Check to see if there are any custom IPs requested in this range.
-		var requestedIP net.IP
+		var requestedIP *net.IPNet
 		for k, ip := range requestedIPs {
-			if rangeset.Contains(ip) {
+			foundRange := rangeset.RangeFor(ip)
+			if foundRange {
 				requestedIP = ip
 				delete(requestedIPs, k)
 				break
@@ -133,7 +134,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 		errstr := "failed to allocate all requested IPs:"
 		for _, ip := range requestedIPs {
-			errstr = errstr + " " + ip.String()
+			errstr = errstr + " " + ip.IP.String()
 		}
 		return fmt.Errorf(errstr)
 	}

@@ -21,17 +21,13 @@ import (
 )
 
 // Contains returns true if any range in this set contains an IP
-func (s *RangeSet) Contains(addr net.IP) bool {
+func (s *RangeSet) Contains(addr *net.IPNet) bool {
 	r, _ := s.RangeFor(addr)
 	return r != nil
 }
 
 // RangeFor finds the range that contains an IP, or nil if not found
-func (s *RangeSet) RangeFor(addr net.IP) (*Range, error) {
-	if err := canonicalizeIP(&addr); err != nil {
-		return nil, err
-	}
-
+func (s *RangeSet) RangeFor(addr *net.IPNet) (*Range, error) {
 	for _, r := range *s {
 		if r.Contains(addr) {
 			return &r, nil

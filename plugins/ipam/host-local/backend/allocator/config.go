@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/020"
@@ -48,7 +49,7 @@ type IPAMConfig struct {
 	DataDir    string         `json:"dataDir"`
 	ResolvConf string         `json:"resolvConf"`
 	Ranges     []RangeSet     `json:"ranges"`
-	IPArgs     []net.IP       `json:"-"` // Requested IPs from CNI_ARGS and args
+	IPArgs     []*net.IPNet    `json:"-"` // Requested IPs from CNI_ARGS and args
 }
 
 type IPAMEnvArgs struct {
@@ -69,6 +70,23 @@ type Range struct {
 	Gateway    net.IP      `json:"gateway,omitempty"`
 }
 
+func readIP(addr string) (*net.IPNet, error) {
+	if addr == "" {
+		return nil, nil
+	}
+
+	normalized := addr
+	if !strings.Contains(normalized, "/") {
+		normalized = normalized + "/0"
+	}
+	ip, ipnet, err := net.ParseCIDR(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("invalid env args IP %q: %v", addr, err)
+	}
+	ipnet.IP = ip
+	return ipnet, nil
+}
+
 // NewIPAMConfig creates a NetworkConfig from the given network name.
 func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	n := Net{}
@@ -78,29 +96,6 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 
 	if n.IPAM == nil {
 		return nil, "", fmt.Errorf("IPAM config missing 'ipam' key")
-	}
-
-	// Parse custom IP from both env args *and* the top-level args config
-	if envArgs != "" {
-		e := IPAMEnvArgs{}
-		err := types.LoadArgs(envArgs, &e)
-		if err != nil {
-			return nil, "", err
-		}
-
-		if e.IP != nil {
-			n.IPAM.IPArgs = []net.IP{e.IP}
-		}
-	}
-
-	if n.Args != nil && n.Args.A != nil && len(n.Args.A.IPs) != 0 {
-		n.IPAM.IPArgs = append(n.IPAM.IPArgs, n.Args.A.IPs...)
-	}
-
-	for idx := range n.IPAM.IPArgs {
-		if err := canonicalizeIP(&n.IPAM.IPArgs[idx]); err != nil {
-			return nil, "", fmt.Errorf("cannot understand ip: %v", err)
-		}
 	}
 
 	// If a single range (old-style config) is specified, prepend it to
@@ -156,36 +151,29 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	// Parse custom IP from both env args *and* the top-level args config
 	if envArgs != "" {
 		e := IPAMEnvArgs{}
-		err := types.LoadArgs(envArgs, &e)
-		if err != nil {
+		if err := types.LoadArgs(envArgs, &e); err != nil {
 			return nil, "", err
 		}
 
-		if e.IP != "" {
-			var ipnet *net.IP
-			if strings.Contains(e.IP, "/") {
-				var ip net.IP
-				ip, ipnet, err = net.ParseCIDR(e.IP)
-				if err != nil {
-					return nil, "", err
-				}
-				ipnet.IP = ip
-			} else {
-				ipnet.IP = net.ParseIP(e.IP)
-				if ipnet.IP == nil {
-					return nil, "", fmt.Errorf("invalid IP %q", e.IP)
-				}
+		ipn, err := readIP(e.IP)
+		if err != nil {
+			return nil, "", err
+		}
+		n.IPAM.IPArgs = append(n.IPAM.IPArgs, ipn)
+	}
+
+	if n.Args != nil && n.Args.A != nil {
+		for _, ip := range n.Args.A.IPs {
+			ipn, err := readIP(ip)
+			if err != nil {
+				return nil, "", err
 			}
-			n.IPAM.IPArgs = []net.IP{e.IP}
+			n.IPAM.IPArgs = append(n.IPAM.IPArgs, ipn)
 		}
 	}
 
-	if n.Args != nil && n.Args.A != nil && len(n.Args.A.IPs) != 0 {
-		n.IPAM.IPArgs = append(n.IPAM.IPArgs, n.Args.A.IPs...)
-	}
-
 	for idx, _ := range n.IPAM.IPArgs {
-		if err := canonicalizeIP(&n.IPAM.IPArgs[idx]); err != nil {
+		if err := canonicalizeIP(&n.IPAM.IPArgs[idx].IP); err != nil {
 			return nil, "", fmt.Errorf("cannot understand ip: %v", err)
 		}
 	}

@@ -88,7 +88,7 @@ func (r *Range) Canonicalize() error {
 }
 
 // IsValidIP checks if a given ip is a valid, allocatable address in a given Range
-func (r *Range) Contains(addr net.IP) bool {
+func (r *Range) Contains(addr *net.IPNet) bool {
 	if err := canonicalizeIP(&addr); err != nil {
 		return false
 	}
